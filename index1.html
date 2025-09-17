@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Next-Level Blog App</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Inter',sans-serif;}
+body{background:#f7f9fc;color:#333;}
+.container{display:flex;min-height:100vh;}
+.sidebar {width: 350px;background: black;color: #03045e;padding: 25px;display: flex;flex-direction: column;}
+.main{flex:1;padding:40px;background:black;overflow-y:auto;}
+.card{background: #caf0f8;border-radius:20px;padding:20px;margin-bottom:25px;box-shadow:0 12px 30px rgba(0,0,0,0.08);transition:0.3s;position:relative;}
+.card:hover{transform:translateY(-5px);box-shadow:0 20px 40px rgba(0,0,0,0.15);}
+.sidebar-section{width:100%;margin-bottom:30px;display:flex;flex-direction:column;}
+.sidebar-section strong{display:block;font-size:1.5em;margin-bottom:15px;text-align:center;color:black;text-shadow:1px 1px 3px rgba(0,0,0,0.3);}
+input,textarea,select{width:100%;padding:12px;margin-bottom:15px;border:none;border-radius:15px;transition:0.3s;font-size:1em;}
+input:focus,textarea:focus{outline:none;box-shadow:0 0 10px rgba(0,0,0,0.3);}
+button{padding:12px 20px;border:none;border-radius:12px;cursor:pointer;transition:0.3s;font-weight:600;}
+button.btn{background:#03045e;color:#fff;box-shadow:0 6px 15px rgba(255,75,43,0.3);}
+button.btn:hover{background:#0077b6;transform:translateY(-2px);}
+button.btn.secondary{background:#1f1f1f;box-shadow:0 6px 15px rgba(0,0,0,0.3);}
+button.btn.secondary:hover{background:#333;transform:translateY(-2px);}
+.sidebar input, .sidebar textarea {background: rgba(0, 0, 0, 0.199);color: #000;}
+.sidebar input::placeholder, .sidebar textarea::placeholder {color: #555;}
+.post{background:#caf0f8;border-radius:20px;padding:25px;margin-bottom:25px;box-shadow:0 10px 25px rgba(0,0,0,0.08);position:relative;overflow:hidden;}
+.post h3{margin-bottom:12px;color:black;}
+.post small{display:block;margin-top:15px;color:#555;}
+.post button{margin-top:12px;width:auto;}
+#searchBar{padding:15px;border-radius:15px;border:none;margin-bottom:25px;box-shadow:0 6px 15px rgba(0,0,0,0.05);}
+.pagination{margin-top:15px;display:flex;gap:10px;justify-content:center;}
+.pagination button{padding:8px 15px;border-radius:12px;}
+.toast{position:fixed;bottom:20px;right:20px;background:rgba(0,0,0,0.85);color:#90e0ef;padding:15px 25px;border-radius:15px;font-weight:600;opacity:0.95;z-index:999;}
+</style>
+</head>
+<body>
+
+<div class="container">
+<aside class="sidebar">
+  <!-- Auth Card -->
+  <div class="sidebar-section card" id="authCard">
+    <strong>Blog App</strong>
+    <div style="width:100%;">
+      <form id="registerForm" style="margin-bottom:15px">
+        <label>Register</label>
+        <input type="text" id="regUsername" placeholder="Username" required />
+        <input type="password" id="regPassword" placeholder="Password" required />
+        <button type="submit" class="btn">Register</button>
+      </form>
+
+      <form id="loginForm">
+        <label>Login</label>
+        <input type="text" id="loginUsername" placeholder="Username" required />
+        <input type="password" id="loginPassword" placeholder="Password" required />
+        <button type="submit" class="btn">Login</button>
+      </form>
+
+      <button id="logoutBtn" class="btn secondary" style="margin-top:15px;display:none">Logout</button>
+    </div>
+  </div>
+
+  <!-- Create Post Card -->
+  <div class="sidebar-section card">
+    <strong>Create Post</strong>
+    <input type="text" id="postTitle" placeholder="Title" />
+    <textarea id="postContent" placeholder="Content"></textarea>
+    <button id="newPostBtn" class="btn">Create Post</button>
+  </div>
+</aside>
+
+<main class="main">
+  <input type="text" id="searchBar" placeholder="Search posts..." />
+  <div id="postsContainer"></div>
+  <div class="pagination" id="pagination"></div>
+</main>
+</div>
+
+<script>
+// ===== Toast =====
+function showToast(msg){
+  const t=document.createElement('div'); t.className='toast'; t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(),2500);
+}
+
+// ===== Users =====
+function saveUsers(users){ localStorage.setItem('blogUsers',JSON.stringify(users)); }
+function loadUsers(){ return JSON.parse(localStorage.getItem('blogUsers')||'[]'); }
+let users = loadUsers();
+let currentUser=null;
+function registerUser(username,password){
+  if(users.find(u=>u.username===username)) throw new Error('Username already exists');
+  const role=users.length===0?'admin':'user';
+  const newUser={username,password,role};
+  users.push(newUser); saveUsers(users); return newUser;
+}
+function loginUser(username,password){
+  const user=users.find(u=>u.username===username&&u.password===password);
+  if(!user) throw new Error('Invalid credentials'); return user;
+}
+
+// ===== Posts =====
+function savePosts(posts){ localStorage.setItem('blogPosts',JSON.stringify(posts)); }
+function loadPostsFromStorage(){ return JSON.parse(localStorage.getItem('blogPosts')||'[]'); }
+let posts=loadPostsFromStorage();
+let currentPage=1;
+const postsPerPage=5;
+let editIndex=null; // New: Stores index of post being edited
+
+function renderPosts(){
+  const container=document.getElementById('postsContainer');
+  container.innerHTML='';
+  const searchVal=document.getElementById('searchBar').value.toLowerCase();
+  const filtered=posts.filter(p=>p.title.toLowerCase().includes(searchVal)||p.content.toLowerCase().includes(searchVal));
+  const totalPages=Math.ceil(filtered.length/postsPerPage);
+  if(currentPage>totalPages) currentPage=1;
+  const start=(currentPage-1)*postsPerPage;
+  const paginated=filtered.slice(start,start+postsPerPage);
+
+  paginated.forEach((post,index)=>{
+    const div=document.createElement('div');
+    div.className='post';
+    div.innerHTML=`<h3>${post.title}</h3><p>${post.content}</p><small>By: ${post.author}</small>`;
+    if(currentUser&&(currentUser.role==='admin'||currentUser.username===post.author)){
+      // Delete button
+      const delBtn=document.createElement('button'); delBtn.textContent='Delete'; delBtn.className='btn secondary';
+      delBtn.onclick=()=>{
+        const globalIndex=posts.indexOf(filtered[start+index]);
+        posts.splice(globalIndex,1); savePosts(posts); renderPosts(); showToast('Post deleted');
+      };
+      div.appendChild(delBtn);
+
+      // Edit button
+      const editBtn=document.createElement('button'); editBtn.textContent='Edit'; editBtn.className='btn'; editBtn.style.marginLeft='10px';
+      editBtn.onclick=()=>{
+        const globalIndex=posts.indexOf(filtered[start+index]);
+        editIndex=globalIndex;
+        document.getElementById('postTitle').value=posts[globalIndex].title;
+        document.getElementById('postContent').value=posts[globalIndex].content;
+        showToast('Editing post. Click "Create Post" to save changes.');
+        window.scrollTo({top:0,behavior:'smooth'});
+      };
+      div.appendChild(editBtn);
+    }
+    container.appendChild(div);
+  });
+
+  // Pagination
+  const paginationDiv=document.getElementById('pagination'); paginationDiv.innerHTML='';
+  for(let i=1;i<=totalPages;i++){
+    const btn=document.createElement('button'); btn.textContent=i; btn.className='btn secondary';
+    if(i===currentPage) btn.style.background='#ff416c';
+    btn.onclick=()=>{currentPage=i;renderPosts();}
+    paginationDiv.appendChild(btn);
+  }
+}
+
+// ===== Create / Update Post =====
+document.getElementById('newPostBtn').addEventListener('click',()=>{
+  if(!currentUser){ showToast('Please login to create posts'); return; }
+  const title=document.getElementById('postTitle').value.trim();
+  const content=document.getElementById('postContent').value.trim();
+  if(!title||!content){ showToast('Title and content required'); return; }
+
+  if(editIndex!==null){
+    posts[editIndex].title=title; posts[editIndex].content=content;
+    showToast('Post updated successfully'); editIndex=null;
+  } else {
+    posts.push({title,content,author:currentUser.username}); showToast('Post created');
+  }
+  savePosts(posts);
+  document.getElementById('postTitle').value=''; document.getElementById('postContent').value='';
+  renderPosts();
+});
+
+// ===== Auth Forms =====
+const registerForm=document.getElementById('registerForm');
+const loginForm=document.getElementById('loginForm');
+const logoutBtn=document.getElementById('logoutBtn');
+
+registerForm.addEventListener('submit',e=>{
+  e.preventDefault();
+  const username=document.getElementById('regUsername').value.trim();
+  const password=document.getElementById('regPassword').value.trim();
+  try{ const newUser=registerUser(username,password); showToast(`User ${newUser.username} registered as ${newUser.role}`); registerForm.reset(); }
+  catch(err){showToast(err.message);}
+});
+
+loginForm.addEventListener('submit',e=>{
+  e.preventDefault();
+  const username=document.getElementById('loginUsername').value.trim();
+  const password=document.getElementById('loginPassword').value.trim();
+  try{
+    currentUser=loginUser(username,password);
+    showToast(`Logged in as ${currentUser.username} (${currentUser.role})`);
+    loginForm.reset(); loginForm.style.display='none'; registerForm.style.display='none'; logoutBtn.style.display='block';
+    renderPosts();
+  }catch(err){showToast(err.message);}
+});
+
+logoutBtn.addEventListener('click',()=>{
+  currentUser=null; showToast('Logged out');
+  loginForm.style.display='block'; registerForm.style.display='block'; logoutBtn.style.display='none';
+  renderPosts();
+});
+
+// ===== Search =====
+document.getElementById('searchBar').addEventListener('input',()=>{currentPage=1;renderPosts();});
+
+// Initial render
+renderPosts();
+</script>
+</body>
+</html>
